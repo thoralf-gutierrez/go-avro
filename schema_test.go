@@ -301,9 +301,9 @@ func TestSchemaRegistryMap(t *testing.T) {
 
 func TestRecordCustomProps(t *testing.T) {
 	raw := `{"type": "record", "name": "TestRecord", "hello": "world", "fields": [
-     	{"name": "longRecordField", "type": "long"},
+     	{"name": "longRecordField", "type": "long", "foo": "bar"},
      	{"name": "stringRecordField", "type": "string"},
-     	{"name": "intRecordField", "type": "int"},
+     	{"name": "intRecordField", "type": "int", "default": 0},
      	{"name": "floatRecordField", "type": "float"}
      ]}`
 	s, err := ParseSchema(raw)
@@ -313,6 +313,34 @@ func TestRecordCustomProps(t *testing.T) {
 	value, exists := s.Prop("hello")
 	assert(t, exists, true)
 	assert(t, value, "world")
+
+	expectedToString := `{
+    "fields": [
+        {
+            "foo": "bar",
+            "name": "longRecordField",
+            "type": "long"
+        },
+        {
+            "name": "stringRecordField",
+            "type": "string"
+        },
+        {
+            "default": 0,
+            "name": "intRecordField",
+            "type": "int"
+        },
+        {
+            "name": "floatRecordField",
+            "type": "float"
+        }
+    ],
+    "hello": "world",
+    "name": "TestRecord",
+    "type": "record"
+}`
+
+	assert(t, s.String(), expectedToString)
 }
 
 func TestLoadSchemas(t *testing.T) {

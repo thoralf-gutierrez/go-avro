@@ -420,7 +420,7 @@ func (s *RecordSchema) String() string {
 
 // MarshalJSON serializes the given schema as JSON.
 func (s *RecordSchema) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
+	return structToJSONWithProps(struct {
 		Type      string         `json:"type,omitempty"`
 		Namespace string         `json:"namespace,omitempty"`
 		Name      string         `json:"name,omitempty"`
@@ -434,7 +434,7 @@ func (s *RecordSchema) MarshalJSON() ([]byte, error) {
 		Doc:       s.Doc,
 		Aliases:   s.Aliases,
 		Fields:    s.Fields,
-	})
+	}, s.Properties)
 }
 
 // Type returns a type constant for this RecordSchema.
@@ -559,7 +559,7 @@ func (this *SchemaField) Prop(key string) (interface{}, bool) {
 // MarshalJSON serializes the given schema field as JSON.
 func (s *SchemaField) MarshalJSON() ([]byte, error) {
 	if s.Type.Type() == Null || (s.Type.Type() == Union && s.Type.(*UnionSchema).Types[0].Type() == Null) {
-		return json.Marshal(struct {
+		return structToJSONWithProps(struct {
 			Name    string      `json:"name,omitempty"`
 			Doc     string      `json:"doc,omitempty"`
 			Default interface{} `json:"default"`
@@ -569,10 +569,10 @@ func (s *SchemaField) MarshalJSON() ([]byte, error) {
 			Doc:     s.Doc,
 			Default: s.Default,
 			Type:    s.Type,
-		})
+		}, s.Properties)
 	}
 
-	return json.Marshal(struct {
+	return structToJSONWithProps(struct {
 		Name    string      `json:"name,omitempty"`
 		Doc     string      `json:"doc,omitempty"`
 		Default interface{} `json:"default,omitempty"`
@@ -582,12 +582,13 @@ func (s *SchemaField) MarshalJSON() ([]byte, error) {
 		Doc:     s.Doc,
 		Default: s.Default,
 		Type:    s.Type,
-	})
+	}, s.Properties)
 }
 
 // String returns a JSON representation of SchemaField.
 func (s *SchemaField) String() string {
-	return fmt.Sprintf("[SchemaField: Name: %s, Doc: %s, Default: %v, Type: %s]", s.Name, s.Doc, s.Default, s.Type)
+	return fmt.Sprintf("[SchemaField: Name: %s, Doc: %s, Default: %v, Type: %s, Props: %s]",
+		s.Name, s.Doc, s.Default, s.Type, s.Properties)
 }
 
 // EnumSchema implements Schema and represents Avro enum type.
@@ -639,7 +640,7 @@ func (*EnumSchema) Validate(v reflect.Value) bool {
 
 // MarshalJSON serializes the given schema as JSON.
 func (s *EnumSchema) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
+	return structToJSONWithProps(struct {
 		Type      string   `json:"type,omitempty"`
 		Namespace string   `json:"namespace,omitempty"`
 		Name      string   `json:"name,omitempty"`
@@ -651,7 +652,7 @@ func (s *EnumSchema) MarshalJSON() ([]byte, error) {
 		Name:      s.Name,
 		Doc:       s.Doc,
 		Symbols:   s.Symbols,
-	})
+	}, s.Properties)
 }
 
 // ArraySchema implements Schema and represents Avro array type.
@@ -701,13 +702,13 @@ func (s *ArraySchema) Validate(v reflect.Value) bool {
 
 // MarshalJSON serializes the given schema as JSON.
 func (s *ArraySchema) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
+	return structToJSONWithProps(struct {
 		Type  string `json:"type,omitempty"`
 		Items Schema `json:"items,omitempty"`
 	}{
 		Type:  "array",
 		Items: s.Items,
-	})
+	}, s.Properties)
 }
 
 // MapSchema implements Schema and represents Avro map type.
@@ -755,13 +756,13 @@ func (s *MapSchema) Validate(v reflect.Value) bool {
 
 // MarshalJSON serializes the given schema as JSON.
 func (s *MapSchema) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
+	return structToJSONWithProps(struct {
 		Type   string `json:"type,omitempty"`
 		Values Schema `json:"values,omitempty"`
 	}{
 		Type:   "map",
 		Values: s.Values,
-	})
+	}, s.Properties)
 }
 
 // UnionSchema implements Schema and represents Avro union type.
@@ -871,7 +872,7 @@ func (s *FixedSchema) Validate(v reflect.Value) bool {
 
 // MarshalJSON serializes the given schema as JSON.
 func (s *FixedSchema) MarshalJSON() ([]byte, error) {
-	return json.Marshal(struct {
+	return structToJSONWithProps(struct {
 		Type string `json:"type,omitempty"`
 		Size int    `json:"size,omitempty"`
 		Name string `json:"name,omitempty"`
@@ -879,7 +880,7 @@ func (s *FixedSchema) MarshalJSON() ([]byte, error) {
 		Type: "fixed",
 		Size: s.Size,
 		Name: s.Name,
-	})
+	}, s.Properties)
 }
 
 // GetFullName returns a fully-qualified name for a schema if possible. The format is namespace.name.
@@ -1161,7 +1162,8 @@ func getProperties(v map[string]interface{}) map[string]interface{} {
 func isReserved(name string) bool {
 	switch name {
 	case schemaAliasesField, schemaDocField, schemaFieldsField, schemaItemsField, schemaNameField,
-		schemaNamespaceField, schemaSizeField, schemaSymbolsField, schemaTypeField, schemaValuesField:
+		schemaNamespaceField, schemaSizeField, schemaSymbolsField, schemaTypeField, schemaValuesField,
+		schemaDefaultField:
 		return true
 	}
 
@@ -1174,4 +1176,26 @@ func dereference(v reflect.Value) reflect.Value {
 	}
 
 	return v
+}
+
+func structToJSONWithProps(s interface{}, props map[string]interface{}) ([]byte, error) {
+	// Convert struct to json, this is useful because the json library implements the omitempty tag for us
+	jsonWithoutProps, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the json back to a map, so that we can add the other properties to it
+	var mapWithProps map[string]interface{}
+	if err = json.Unmarshal(jsonWithoutProps, &mapWithProps); err != nil {
+		return nil, err
+	}
+
+	// Add other properties to the map
+	for k, v := range props {
+		mapWithProps[k] = v
+	}
+
+	// Convert map to final json
+	return json.Marshal(mapWithProps)
 }
